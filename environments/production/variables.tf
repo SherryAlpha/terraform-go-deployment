@@ -135,3 +135,10 @@ variable "asg_desired_capacity" {
   type        = number
   default     = 4
 }
+
+variable "github_token" {
+  description = "GitHub Personal Access Token for private repo access"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
