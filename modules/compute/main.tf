@@ -123,6 +123,7 @@ locals {
     wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
     rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
     echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile.d/go.sh
+    source /etc/profile.d/go.sh
     
     # Create app directory
     mkdir -p /opt/plumpcasino
@@ -131,6 +132,62 @@ locals {
     # Create log directory
     mkdir -p /var/log/plumpcasino
     chown ec2-user:ec2-user /var/log/plumpcasino
+    
+    # Clone private community repo using GitHub token
+    cd /opt/plumpcasino
+    git clone https://${var.github_token}@github.com/PlumpCasino/community.git app
+    cd app
+    
+    # Build REST service
+    cd cmd/rest
+    go build -o /opt/plumpcasino/rest .
+    
+    # Build Events service
+    cd ../events
+    go build -o /opt/plumpcasino/events .
+    
+    # Create systemd service for REST API
+    cat > /etc/systemd/system/plumpcasino-rest.service <<'SERVICE'
+    [Unit]
+    Description=PlumpCasino REST API
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=ec2-user
+    WorkingDirectory=/opt/plumpcasino
+    ExecStart=/opt/plumpcasino/rest
+    Restart=always
+    RestartSec=10
+
+    [Install]
+    WantedBy=multi-user.target
+    SERVICE
+
+    # Create systemd service for Events
+    cat > /etc/systemd/system/plumpcasino-events.service <<'SERVICE'
+    [Unit]
+    Description=PlumpCasino Events Service
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=ec2-user
+    WorkingDirectory=/opt/plumpcasino
+    ExecStart=/opt/plumpcasino/events
+    Restart=always
+    RestartSec=10
+
+    [Install]
+    WantedBy=multi-user.target
+    SERVICE
+    
+    # Start services
+    systemctl daemon-reload
+    systemctl start plumpcasino-rest
+    systemctl start plumpcasino-events
+    systemctl enable plumpcasino-rest
+    systemctl enable plumpcasino-events
     
     # Configure CloudWatch agent
     cat > /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-config.json <<'CWCONFIG'

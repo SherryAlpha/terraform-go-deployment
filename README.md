@@ -21,5 +21,5 @@ tofu init
 tofu plan
 tofu apply
 
-## Github Actions
-- Actions → Production Infrastructure → Run workflow
+## GitHub Actions
+Actions → Production Infrastructure → Run workflow

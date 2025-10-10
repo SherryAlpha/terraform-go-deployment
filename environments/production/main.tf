@@ -99,6 +99,7 @@ module "compute" {
   target_group_arns     = module.load_balancer.target_group_arns
   instance_type         = var.instance_type
   ssh_public_key        = var.ssh_public_key
+  github_token          = var.github_token
   asg_min_size          = var.asg_min_size
   asg_max_size          = var.asg_max_size
   asg_desired_capacity  = var.asg_desired_capacity
