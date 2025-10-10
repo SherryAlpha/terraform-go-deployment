@@ -1,0 +1,66 @@
+name: Production Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'What do you want to do?'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  AWS_REGION: eu-west-1
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.6.0
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: environments/production
+        run: tofu init
+
+      - name: Terraform Plan
+        if: github.event.inputs.action == 'plan'
+        working-directory: environments/production
+        run: tofu plan -var-file=terraform.tfvars
+        env:
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      - name: Terraform Apply
+        if: github.event.inputs.action == 'apply'
+        working-directory: environments/production
+        run: tofu apply -auto-approve -var-file=terraform.tfvars
+        env:
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        working-directory: environments/production
+        run: tofu destroy -auto-approve -var-file=terraform.tfvars
+        env:
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      - name: Show Outputs
+        if: github.event.inputs.action == 'apply'
+        working-directory: environments/production
+        run: tofu output
