@@ -112,18 +112,7 @@ locals {
     dnf update -y
     
     # Install required packages
-    dnf install -y git docker amazon-cloudwatch-agent
-    
-    # Start Docker
-    systemctl start docker
-    systemctl enable docker
-    usermod -aG docker ec2-user
-    
-    # Install Go
-    wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
-    rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile.d/go.sh
-    source /etc/profile.d/go.sh
+    dnf install -y amazon-cloudwatch-agent
     
     # Create app directory
     mkdir -p /opt/plumpcasino
@@ -133,18 +122,11 @@ locals {
     mkdir -p /var/log/plumpcasino
     chown ec2-user:ec2-user /var/log/plumpcasino
     
-    # Clone private community repo using GitHub token
+    # Download pre-built binaries from S3
     cd /opt/plumpcasino
-    git clone https://${var.github_token}@github.com/PlumpCasino/community.git app
-    cd app
-    
-    # Build REST service
-    cd cmd/rest
-    go build -o /opt/plumpcasino/rest .
-    
-    # Build Events service
-    cd ../events
-    go build -o /opt/plumpcasino/events .
+    aws s3 cp s3://plump-casino-deployments-prod/binaries/rest /opt/plumpcasino/rest
+    aws s3 cp s3://plump-casino-deployments-prod/binaries/events /opt/plumpcasino/events
+    chmod +x /opt/plumpcasino/rest /opt/plumpcasino/events
     
     # Create systemd service for REST API
     cat > /etc/systemd/system/plumpcasino-rest.service <<'SERVICE'
@@ -215,7 +197,7 @@ locals {
       -c file:/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-config.json
     
     # Signal completion
-    echo "User data execution completed" > /var/log/userdata.log
+    echo "Deployment completed at $(date)" > /var/log/userdata.log
   EOF
 }
 
