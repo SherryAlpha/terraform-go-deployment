@@ -20,3 +20,6 @@ cd environments/production
 tofu init
 tofu plan
 tofu apply
+
+## Github Actions
+- Actions → Production Infrastructure → Run workflow
