@@ -1,0 +1,30 @@
+server:
+  port: 3000
+
+postgres:
+  host: ${DB_HOST}
+  port: ${DB_PORT}
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  dbname: ${DB_NAME}
+  sslmode: require
+
+coinmarketcap:
+  apikey: ${COINMARKETCAP_API_KEY:-your-api-key-here}
+  baseurl: https://pro-api.coinmarketcap.com
+
+kafka:
+  brokers:
+    - ${KAFKA_BROKER:-localhost:9092}
+  groupid: plumpcasino-group
+
+keycloak:
+  url: ${KEYCLOAK_URL:-http://localhost:8080}
+  realm: ${KEYCLOAK_REALM:-plumpcasino}
+  clientid: ${KEYCLOAK_CLIENT_ID:-plumpcasino-client}
+
+betby:
+  brandid: ${BETBY_BRAND_ID:-placeholder-brand}
+  privatekeypem: ${BETBY_PRIVATE_KEY:-placeholder-private-key}
+  publickeypem: ${BETBY_PUBLIC_KEY:-placeholder-public-key}
+  tokenttl: 3600

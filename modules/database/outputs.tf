@@ -25,5 +25,5 @@ output "db_name" {
 
 output "db_secret_arn" {
   description = "ARN of the secret containing database credentials"
-  value       = aws_secretsmanager_secret.db_password.arn
+  value       = data.aws_secretsmanager_secret_version.db_password.arn
 }

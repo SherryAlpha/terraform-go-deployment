@@ -15,12 +15,12 @@ resource "aws_lb" "main" {
   }
 }
 
-# Target Group for REST API (port 8080)
+# Target Group for REST API (port 3000)
 resource "aws_lb_target_group" "rest" {
-  name     = "${var.project_name}-${var.environment}-rest-tg"
-  port     = 8080
-  protocol = "HTTP"
-  vpc_id   = var.vpc_id
+  name_prefix = "pcr-"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
 
   health_check {
     enabled             = true
@@ -28,7 +28,7 @@ resource "aws_lb_target_group" "rest" {
     unhealthy_threshold = 3
     timeout             = 5
     interval            = 30
-    path                = "/health"
+    path                = "/ping"  # Changed from /health
     matcher             = "200"
   }
 
@@ -39,12 +39,12 @@ resource "aws_lb_target_group" "rest" {
   }
 }
 
-# Target Group for WebSocket Events (port 8081)
+# Target Group for WebSocket Events (port 3001)
 resource "aws_lb_target_group" "events" {
-  name     = "${var.project_name}-${var.environment}-events-tg"
-  port     = 8081
-  protocol = "HTTP"
-  vpc_id   = var.vpc_id
+  name_prefix = "pce-"
+  port        = 3001
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
 
   health_check {
     enabled             = true
@@ -52,7 +52,7 @@ resource "aws_lb_target_group" "events" {
     unhealthy_threshold = 3
     timeout             = 5
     interval            = 30
-    path                = "/health"
+    path                = "/ping"  # Changed from /health
     matcher             = "200"
   }
 

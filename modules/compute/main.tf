@@ -14,6 +14,17 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
+# Elastic IP for direct access
+resource "aws_eip" "app" {
+  domain = "vpc"
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-eip"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
 # IAM role for EC2 instances
 resource "aws_iam_role" "ec2" {
   name = "${var.project_name}-${var.environment}-ec2-role"
@@ -75,6 +86,14 @@ resource "aws_iam_role_policy" "ec2" {
           "s3:GetObject"
         ]
         Resource = "arn:aws:s3:::plump-casino-deployments-prod/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:AssociateAddress",
+          "ec2:DescribeAddresses"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -112,7 +131,7 @@ locals {
     dnf update -y
     
     # Install required packages
-    dnf install -y amazon-cloudwatch-agent
+    dnf install -y amazon-cloudwatch-agent jq
     
     # Create app directory
     mkdir -p /opt/plumpcasino
@@ -124,71 +143,114 @@ locals {
     
     # Download pre-built binaries from S3
     cd /opt/plumpcasino
-    aws s3 cp s3://plump-casino-deployments-prod/binaries/rest /opt/plumpcasino/rest
-    aws s3 cp s3://plump-casino-deployments-prod/binaries/events /opt/plumpcasino/events
-    chmod +x /opt/plumpcasino/rest /opt/plumpcasino/events
+    aws s3 cp s3://plump-casino-deployments-prod/binaries/rest /opt/plumpcasino/rest || echo "REST binary not found"
+    aws s3 cp s3://plump-casino-deployments-prod/binaries/events /opt/plumpcasino/events || echo "Events binary not found"
+    aws s3 cp s3://plump-casino-deployments-prod/binaries/bonuses /opt/plumpcasino/bonuses || echo "Bonuses binary not found"
+    chmod +x /opt/plumpcasino/rest /opt/plumpcasino/events /opt/plumpcasino/bonuses
     
-    # Create systemd service for REST API
-    cat > /etc/systemd/system/plumpcasino-rest.service <<'SERVICE'
-    [Unit]
-    Description=PlumpCasino REST API
-    After=network.target
+    # Create config directory
+    mkdir -p /opt/plumpcasino/config/local
+    
+    # Download config from S3
+    aws s3 cp s3://plump-casino-deployments-prod/config/config.yaml /opt/plumpcasino/config/local/config.yaml || echo "Config not found"
+    
+    # Set ownership
+    chown -R ec2-user:ec2-user /opt/plumpcasino/config
+    
+    # Create systemd service for REST API (port 3000)
+    cat > /etc/systemd/system/plumpcasino-rest.service <<SERVICE
+[Unit]
+Description=PlumpCasino REST API
+After=network.target
 
-    [Service]
-    Type=simple
-    User=ec2-user
-    WorkingDirectory=/opt/plumpcasino
-    ExecStart=/opt/plumpcasino/rest
-    Restart=always
-    RestartSec=10
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/plumpcasino
+ExecStart=/opt/plumpcasino/rest
+Restart=always
+RestartSec=10
+Environment="AWS_REGION=eu-west-1"
+Environment="AWS_SDK_LOAD_CONFIG=1"
+Environment="PORT=3000"
 
-    [Install]
-    WantedBy=multi-user.target
-    SERVICE
+[Install]
+WantedBy=multi-user.target
+SERVICE
 
-    # Create systemd service for Events
-    cat > /etc/systemd/system/plumpcasino-events.service <<'SERVICE'
-    [Unit]
-    Description=PlumpCasino Events Service
-    After=network.target
+    # Create systemd service for Events (port 8081)
+    cat > /etc/systemd/system/plumpcasino-events.service <<SERVICE
+[Unit]
+Description=PlumpCasino Events Service
+After=network.target
 
-    [Service]
-    Type=simple
-    User=ec2-user
-    WorkingDirectory=/opt/plumpcasino
-    ExecStart=/opt/plumpcasino/events
-    Restart=always
-    RestartSec=10
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/plumpcasino
+ExecStart=/opt/plumpcasino/events
+Restart=always
+RestartSec=10
+Environment="AWS_REGION=eu-west-1"
+Environment="AWS_SDK_LOAD_CONFIG=1"
+Environment="WS_PORT=8081"
 
-    [Install]
-    WantedBy=multi-user.target
-    SERVICE
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+    # Create systemd service for Bonuses (background service)
+    cat > /etc/systemd/system/plumpcasino-bonuses.service <<SERVICE
+[Unit]
+Description=PlumpCasino Bonuses Service
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/plumpcasino
+ExecStart=/opt/plumpcasino/bonuses
+Restart=always
+RestartSec=10
+Environment="AWS_REGION=eu-west-1"
+Environment="AWS_SDK_LOAD_CONFIG=1"
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
     
     # Start services
     systemctl daemon-reload
     systemctl start plumpcasino-rest
     systemctl start plumpcasino-events
+    systemctl start plumpcasino-bonuses
     systemctl enable plumpcasino-rest
     systemctl enable plumpcasino-events
+    systemctl enable plumpcasino-bonuses
+    
+    # Associate Elastic IP
+    INSTANCE_ID=$(ec2-metadata --instance-id | cut -d " " -f 2)
+    EIP_ALLOC_ID="${aws_eip.app.allocation_id}"
+    aws ec2 associate-address --instance-id $INSTANCE_ID --allocation-id $EIP_ALLOC_ID --region eu-west-1 || echo "Failed to associate EIP"
     
     # Configure CloudWatch agent
     cat > /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-config.json <<'CWCONFIG'
-    {
-      "logs": {
-        "logs_collected": {
-          "files": {
-            "collect_list": [
-              {
-                "file_path": "/var/log/plumpcasino/*.log",
-                "log_group_name": "/aws/ec2/${var.project_name}-${var.environment}",
-                "log_stream_name": "{instance_id}"
-              }
-            ]
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/plumpcasino/*.log",
+            "log_group_name": "/aws/ec2/plumpcasino-production",
+            "log_stream_name": "{instance_id}"
           }
-        }
+        ]
       }
     }
-    CWCONFIG
+  }
+}
+CWCONFIG
     
     /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
       -a fetch-config \
@@ -212,7 +274,12 @@ resource "aws_launch_template" "app" {
     name = aws_iam_instance_profile.ec2.name
   }
 
-  vpc_security_group_ids = [var.app_security_group_id]
+  # Use network_interfaces to assign public IP
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [var.app_security_group_id]
+    delete_on_termination       = true
+  }
 
   user_data = base64encode(local.user_data)
 
@@ -238,12 +305,11 @@ resource "aws_launch_template" "app" {
   }
 }
 
-# Auto Scaling Group
+# Auto Scaling Group in PUBLIC subnets
 resource "aws_autoscaling_group" "app" {
-  name                = "${var.project_name}-${var.environment}-asg"
-  vpc_zone_identifier = var.private_subnet_ids
-  target_group_arns   = var.target_group_arns
-  health_check_type   = "ELB"
+  name                      = "${var.project_name}-${var.environment}-asg"
+  vpc_zone_identifier       = var.private_subnet_ids  # Will be changed to public in main.tf
+  health_check_type         = "EC2"
   health_check_grace_period = 300
 
   min_size         = var.asg_min_size
@@ -264,6 +330,12 @@ resource "aws_autoscaling_group" "app" {
   tag {
     key                 = "Environment"
     value               = var.environment
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "Project"
+    value               = "PlumpCasino"
     propagate_at_launch = true
   }
 
